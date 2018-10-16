@@ -1,0 +1,814 @@
+--- 
+title: "Breakdown of Vellend's Code"
+author: "Melissa Chen"
+---
+
+### DRIFT
+
+The first process coded is drift. 
+
+The initialization parameters in his code are as follows:
+
+``` {r eval=FALSE}
+## specify initial community and time instructions
+J <- 50
+init.1 <- J / 2
+COM <- vector(length = J)
+
+COM[1:init.1] <- 1
+COM[(init.1 + 1):J] <- 2
+
+num.years <- 50
+year <- 2
+
+## Set up vector for data collection
+freq.1.vec <- vector(length = num.years)
+freq.1.vec[1] <- init.1 / J
+```
+
+We see that there are "J" community members. We will simulate this community for 50 years, and start at year 2 (since year 1 is the intial population).
+
+```{r eval=FALSE}
+## run simulation
+for(i in 1:(J * (num.years - 1))) {
+  
+  freq.1 <- sum(COM == 1) / J
+  Pr.1  <- freq.1
+  COM[ceiling(J * runif(1))] <- sample(c(1, 2), 1, prob = c(Pr.1, 1 - Pr.1))
+  
+  if (i %% J == 0){
+    freq.1.vec[year] <- sum(COM == 1) / J
+    year <- year + 1
+  }
+}
+
+# graph the results
+plot(1:num.years, freq.1.vec, type = "l", 
+     xlab = "Time", 
+     ylab = "Frequency of species 1", 
+     ylim = c(0, 1))
+```
+
+We iterate through the simulation individuals*year $(50x50=2500)$ times. In each iteration, a random individual is chosen to die and its replacement is selected based on the probability of either species reproducing. Now, while simple, this code set-up has a few short-comings. Firstly, the way the code is written makes extending this simple scenario into a multi-species community fairly difficult for a novice user. I would propose that the code be written in a multi-species compatible format from the beginning, so that users can further extend these simple models into their own examples. This can be done like this:
+
+First, we must re-define some of the initialization parameters.
+
+``` {r eval=FALSE}
+## specify initial community and time instructions
+J <- 50
+## Define the number of species you want to use
+num.sp <- 4
+## Set the initial species abundances in a vector so that they are all equally abundant.
+init.all <- rep(J/num.sp, num.sp)
+# Note: in some cases the intial species abundances will be non-whole numbers. This is okay.
+## Create the community vector as normal
+COM <- vector(length = J)
+
+## However, now we must add all the species into the community vector instead of just two.
+## This is essentially the same code as above, but done in a loop so that it can handle "infinite" species.
+start <- 0
+for ( i in 1:num.sp ) {
+    COM[(start+1):(start + init.all[i])] <- i
+    start <- start + init.all[i]
+}
+
+
+num.years <- 50
+year <- 2
+
+## Set up vector for data collection
+## This will have to change into a matrix, since need to track multiple species frequencies and not just one.
+freq.mat <- matrix(nrow=num.years, ncol=num.sp)
+## Instead of using init.all, we use the actual whole number frequences in COM
+freq.mat[1,] <- table(COM)/J
+
+```
+
+The code above produces intialized parameters directly analogous to the 2-species system in the original Vellend text-- but now, you are able to customize it to include any number of species.
+
+As a result of the differences in the initialized parameters above, we also need to make changes to the core code:
+
+```{r eval=FALSE}
+## run simulation
+for(i in 1:(J * (num.years - 1))) {
+  ## Instead of calculating frequencing and probability for just one species, we must do all of them.
+  ## The original code is commented beside the new code for comparison.
+  freq.all <- colSums(sapply(1:num.sp, FUN=function(x) {COM==x}))/J #freq.1 <- sum(COM == 1) / J
+  Pr.all <- freq.all #Pr.1  <- freq.1 
+  COM[ceiling(J * runif(1))] <- sample(1:num.sp, 1, prob = Pr.all) #COM[ceiling(J * runif(1))] <- sample(c(1, 2), 1, prob = c(Pr.1, 1 - Pr.1))
+  
+  if (i %% J == 0){
+    freq.mat[year,] <- colSums(sapply(1:num.sp, FUN=function(x) {COM==x}))/J #freq.1.vec[year] <- sum(COM == 1) / J
+    year <- year + 1
+  }
+}
+
+# graph the results for each species
+par(mfrow=c(2,2))
+# Loop through each species
+for ( i in 1:num.sp ) {
+    plot(1:num.years, freq.mat[,i], type = "l", 
+     xlab = "Time", 
+     ylab = paste0("Frequency of species ",i), 
+     ylim = c(0, 1))
+}
+
+# or graph all in one plot
+plot(NULL
+     , xlim=c(1,num.years)
+     , ylim=c(0,1)
+     , xlab = "Time"
+     , ylab = "Frequency of species")
+for ( i in 1:num.sp) {
+    lines(1:num.years, freq.mat[,i])
+}
+# ... and so on
+
+```
+
+The above ammendments make the code a little more complicated, but it has the benefit of being multi-species compatible.
+
+
+### SELECTION
+
+``` {r}
+
+## specify the number of simulations, the number of years, and a matrix for output
+num.sims <- 20 
+num.years <- 50
+num.sp <- 4
+freq.mat.sims <- list()
+
+## start a loop for each of num.sims independent simulations
+for (j in 1:num.sims) {
+  freq.mat <- matrix(nrow=num.years, ncol=num.sp)
+  
+  ## specify parameters and initial conditions
+  J <- 100
+  ## Set the initial species abundances to be all equal
+  init.all <- rep(J/num.sp, num.sp)
+   
+  
+  COM <- vector(length = J)
+  ## Add all the species into the community vector instead of just two.
+  start <- 0
+  for ( i in 1:num.sp ) {
+      COM[(start+1):(start + init.all[i])] <- i
+      start <- start + init.all[i]
+  }
+
+  # COM[1:init.1] <- 1; COM[(init.1+1):J] <- 2
+  year <- 2
+  
+  # first, make a vector of fitnesses-- can be any unit. Each value corresponds to each species
+  fit.ratio.value <- c(1,1,2,2)
+  # normalized fitness ratio where "1" is no difference
+  fit.ratio.norm <- fit.ratio.value/mean(fit.ratio.value)
+  freq.dep <- 0
+  
+  ## record data (frequency of species 1) for year 1
+  # freq.1.mat[j,1] <- sum(COM==1)/J
+  freq.mat[1,] <- table(COM)/J
+  
+  ## run simulation
+  for (i in 1:(J*(num.years-1))) {
+      
+    freq.all <- colSums(sapply(1:num.sp, FUN=function(x) {COM==x}))/J #freq.1 <- sum(COM == 1) / J
+    fit.ratio <- exp(freq.dep*(freq.all-1/num.sp) + log(fit.ratio.norm))
+    Pr.all <- fit.ratio*freq.all/sum(fit.ratio*freq.all)
+    
+    COM[ceiling(J * runif(1))] <- sample(1:num.sp, 1, prob = Pr.all)
+
+    ## record data    
+    if (i %% J == 0) {
+      freq.mat[year,] <- colSums(sapply(1:num.sp, FUN=function(x) {COM==x}))/J
+      year <- year + 1
+    }
+  }
+  freq.mat.sims[[j]] <- freq.mat
+}
+
+## graph the results; for each species
+# Species 1
+plot(1:num.years, freq.mat.sims[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.sims-1)) {
+    lines(1:num.years,freq.mat.sims[[i]][,1], type="l", ylim=c(0,1))
+}
+# Species 2
+plot(1:num.years, freq.mat.sims[[1]][,2], type="l", xlab="Time", 
+     ylab="Frequency of species 2", ylim=c(0,1))
+for (i in 2:(num.sims-1)) {
+    lines(1:num.years,freq.mat.sims[[i]][,2], type="l", ylim=c(0,1))
+}
+# Species 3
+plot(1:num.years, freq.mat.sims[[1]][,3], type="l", xlab="Time", 
+     ylab="Frequency of species 3", ylim=c(0,1))
+for (i in 2:(num.sims-1)) {
+    lines(1:num.years,freq.mat.sims[[i]][,3], type="l", ylim=c(0,1))
+}
+# Species 4
+plot(1:num.years, freq.mat.sims[[1]][,4], type="l", xlab="Time", 
+     ylab="Frequency of species 4", ylim=c(0,1))
+for (i in 2:(num.sims-1)) {
+    lines(1:num.years,freq.mat.sims[[i]][,4], type="l", ylim=c(0,1))
+}
+
+```
+
+
+Temporally fluctuating selection: Online box 3
+
+``` {r}
+## specify the number of simulations, the number of years, and a matrix for output
+num.sims <- 5 # number of independent simulations to run
+num.years <- 50
+num.sp <- 4 # number of species
+freq.mat.sims <- list()
+
+## start a loop for each of num.sims independent simulations
+for (j in 1:num.sims) {
+
+  freq.mat <- matrix(nrow=num.years, ncol=num.sp)
+  ## specify parameters and initial conditions
+  J <- 4000
+  init.all <- rep(J/num.sp, num.sp)
+  
+  COM <- vector(length = J)
+  ## Add all the species into the community vector instead of just two.
+  start <- 0
+  for ( i in 1:num.sp ) {
+      COM[(start+1):(start + init.all[i])] <- i
+      start <- start + init.all[i]
+  }
+  year <- 2
+
+  freq.mat[1,] <- table(COM)/J 
+
+  # set fitness ratios in each sequence of 20 years
+  # raw fitness
+  f20.value <- c(1,1.1,1,1.1)
+  f20.norm <- f20.value/mean(f20.value)
+  f20 <- cbind(matrix(f20.norm, nrow=num.sp, n=10), matrix(1/f20.norm, nrow=num.sp, n=10))
+  fit.ratios <- matrix(rep(f20,times=(1+num.years/20)), nrow=num.sp)
+ 
+  ## run simulation
+  for (i in 1:(J*(num.years-1))) {
+    freq.all <- colSums(sapply(1:num.sp, FUN=function(x) {COM==x}))/J
+    # freq.1 <- sum(COM==1)/J; freq.2 <- 1 - freq.1
+    fit.ratio <- fit.ratios[,year]
+    Pr.all <- fit.ratio*freq.all/sum(fit.ratio*freq.all)
+    COM[ceiling(J*runif(1))] <- sample(1:num.sp, 1, prob=Pr.all)
+
+    ## record data     
+    if (i %% J == 0) {
+      freq.mat[year,] <- colSums(sapply(1:num.sp, FUN=function(x) {COM==x}))/J
+      year <- year + 1
+    }
+  }
+    freq.mat.sims[[j]] <- freq.mat
+}
+
+## graph the results
+
+## graph the results; for each species
+# Species 1
+plot(1:num.years, freq.mat.sims[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.sims-1)) {
+    lines(1:num.years,freq.mat.sims[[i]][,1], type="l", ylim=c(0,1))
+}
+# Species 2
+plot(1:num.years, freq.mat.sims[[1]][,2], type="l", xlab="Time", 
+     ylab="Frequency of species 2", ylim=c(0,1))
+for (i in 2:(num.sims-1)) {
+    lines(1:num.years,freq.mat.sims[[i]][,2], type="l", ylim=c(0,1))
+}
+# Species 3
+plot(1:num.years, freq.mat.sims[[1]][,3], type="l", xlab="Time", 
+     ylab="Frequency of species 3", ylim=c(0,1))
+for (i in 2:(num.sims-1)) {
+    lines(1:num.years,freq.mat.sims[[i]][,3], type="l", ylim=c(0,1))
+}
+# Species 4
+plot(1:num.years, freq.mat.sims[[1]][,4], type="l", xlab="Time", 
+     ylab="Frequency of species 4", ylim=c(0,1))
+for (i in 2:(num.sims-1)) {
+    lines(1:num.years,freq.mat.sims[[i]][,4], type="l", ylim=c(0,1))
+}
+
+```
+
+Negative Frequency dependent selection: Online box 4
+
+``` {r}
+## specify parameters, initial conditions, and output vector
+num.years <- 50
+num.sp <- 4
+freq.mat <- matrix(nrow=num.years, ncol=num.sp)
+
+J <- 500
+init.all <- rep(J/num.sp, num.sp)
+COM <- vector(length = J)
+## Add all the species into the community vector instead of just two.
+start <- 0
+for ( i in 1:num.sp ) {
+    COM[(start+1):(start + init.all[i])] <- i
+    start <- start + init.all[i]
+}
+year <- 2  
+
+fit.ratio.value <- c(1,1,1,1)
+fit.ratio.norm <- fit.ratio.value/mean(fit.ratio.value)
+freq.dep <- -20
+# can also change freq.dep for each species
+freq.dep <- c(-10,-20,-10,-20)
+  
+## record data (frequency of species 1) for year 1
+freq.mat[1,] <- sum(COM==1)/J
+
+## run simulation  
+for (i in 1:(num.years-1)) {
+  freq.all <- colSums(sapply(1:num.sp, FUN=function(x) {COM==x}))/J
+  fit.ratio <- exp(freq.dep*(freq.all-1/num.sp) + log(fit.ratio.norm))
+  Pr.all <- fit.ratio*freq.all/sum(fit.ratio*freq.all)
+
+  for (k in 1:J) {
+    COM[ceiling(J*runif(1))] <- sample(1:num.sp, 1, prob=Pr.all)
+  }
+  
+  ## record data
+  freq.mat[year,] <- colSums(sapply(1:num.sp, FUN=function(x) {COM==x}))/J
+  year <- year + 1
+}
+
+## graph the results
+plot(1:num.years, freq.mat[,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+plot(1:num.years, freq.mat[,2], type="l", xlab="Time", 
+     ylab="Frequency of species 2", ylim=c(0,1))
+plot(1:num.years, freq.mat[,3], type="l", xlab="Time", 
+     ylab="Frequency of species 3", ylim=c(0,1))
+plot(1:num.years, freq.mat[,4], type="l", xlab="Time", 
+     ylab="Frequency of species 4", ylim=c(0,1))
+
+```
+
+
+### Drift, Selection, Dispersal
+In vellend's book, he describes a scenario where there are multiple patches where there is assymetric favouring of species across patches. That is, in patch 1 species 1 might be more competative by 150%, but in patch 2, species 2 is more competitive by 120%.In this scenario, increasing dispersal (eg. m = 0.5) causes patch 1 to "drag" the frequency of species overall to the eventual extinction of species 2. 
+
+However, the problem with his code is that when m>0.5, the species actually go back to equilibrium. That is because when he samples from the "metacommunity", there is no bias toward species 1 anymore-- it's completely frequency-stochastic. When the metacommunity is extremely large, there is basically no permanent extinction from any local community because the overall meta-community is behaving as one large community devoid of any selection.
+
+Thus, what I propose is a different way of calculating probability of reproduction. So far, settlement of any empty spot in a community is determined by first deciding local or meta contribution; then calculating probabilities; then choosing the new organism. 
+
+OLD PROPOSAL:
+Instead of doing this, I would suggest (1) calculating probabilities of reproduction within each patch, and then (2) calculating the proportional contribution to the "seed pool" from each patch, based on the dispersal parameter (m). In this case, "m" needs to represent something different. I think in vellend's code, "m" represents the proportion of times a niche is filled by an "outsider". Or, the proportion of times reproduction occurs in the metacommunity. The problem with that m is that when m>0.5, it implies that there is more dispersal happening from other patches that may reach the open niche than there is dispersal occuring in the niches' own local community. This doesn't really make sense, logically. Instead, I propose that a value of m=0 means that zero percent of the incoming recruits are coming from the metacommunity, whereas m=1 means that 100% of the new recruits are coming from the metacommunity. The latter scenario might occur in communities where "seed" dispersal is highly efficient so local communities may actually recieve more recruits from organisms in other locations than organisms in its own location.
+
+NEW PROPOSAL:
+Instead of doing this, I would suggest (1) Deciding whether local or metacommunity dispersal occurs, and then (2) calculating the probability of establishment success based on the seleciton pressures of that patch, but with the frequency of the metacommunity. This would mean that even when dispersal (m) is greater than 0.5, there is still selection occuring. When m=1, it essentially assumes the community from which new recruits is coming from is always the metacommunity. 
+
+
+
+``` {r } 
+## specify parameters, initial conditions, and output matrix
+num.years <- 50 
+num.patch <- 10
+num.sp <- 2
+freq.mat <- matrix(nrow=num.years, ncol=num.sp)
+freq.mat.patch <- rep(list(freq.mat),times=num.patch)
+
+J <- 100 # number of individuals PER PATCH
+init.all <- rep(J/num.sp, num.sp)
+
+# make a list of multiple patches; each is a community. 
+COM.list <- list()
+for ( p in 1:num.patch ) {
+  COM <- vector(length = J)
+  ## Add all the species into the community vector instead of just two.
+  start <- 0
+  for ( i in 1:num.sp ) {
+    COM[(start+1):(start + init.all[i])] <- i
+    start <- start + init.all[i]
+  }
+  COM.list[[p]] <- COM
+}
+year <- 2 
+
+
+# the dispersal
+m <- 0
+# you can make the fitness ratio in each patch different for each species
+fit.ratio.value <- matrix(ncol=num.patch, nrow=num.sp)
+fit.ratio.value[] <- 1
+fit.ratio.norm <- apply(fit.ratio.value, MARGIN=2, FUN=function(patch) {patch/sum(patch)})
+# you can make the freq dependencies different for each species in each patch
+freq.dep <- matrix(ncol=num.patch,nrow=num.sp)
+freq.dep[] <- 0
+  
+## record data (frequency of species 1) for year 1
+patch.freq <- lapply(COM.list, function(patch) {table(patch)/J})
+for ( p in 1:length(patch.freq) ) {
+  freq.mat.patch[[p]][1,] <- patch.freq[[p]]
+}
+
+## run simulation
+for (i in 1:(J*num.patch*(num.years-1))) {
+  ## choose a patch where a death even will occur
+  patch <- sample(1:num.patch,1)
+  
+  ## calculate the "reproductive success" of each species within its own patch
+  Pr.all.bypatch <- list()
+  for ( p in 1:num.patch) {
+      Pr.all.bypatch[[p]] <-colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[p]]==x}))/J
+  }
+  
+  # #### OLD PROPOSAL 
+  # ## Now, weight the probability of reproductive success of each species in each patch
+  # # flat prior probability
+  # Pr.all <- rep(1/num.sp, num.sp)
+  # # (1-m)% of new recruits are coming from the local patch
+  # freq.all <- Pr.all.bypatch[[patch]]
+  # fit.ratio <- exp(freq.dep[,patch]*(freq.all-0.5) + log(fit.ratio.norm[,patch]))
+  # Pr.all.local <-  fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  # 
+  # # m% of new recruits are coming from metacommunity (except local patch)
+  # Pr.all.meta.weighted <- rep(1, num.sp)
+  # for ( p in 1:num.patch) {
+  #     if ( p != patch ) {
+  #         freq.all <- Pr.all.bypatch[[p]]
+  #         fit.ratio <- exp(freq.dep[,p]*(freq.all-0.5) + log(fit.ratio.norm[,p]))
+  #         Pr.all.meta <- fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  #         Pr.all.meta.weighted <- Pr.all.meta.weighted+Pr.all.meta
+  #     }
+  # }
+  # Pr.all.meta.weighted <- Pr.all.meta.weighted/sum(Pr.all.meta.weighted)
+  # 
+  # Pr.all <- Pr.all.local*(1-m) + Pr.all.meta.weighted*m
+  
+  
+  #### NEW PROPOSAL
+  ## calculate Pr.1 if dispersal occurs
+  if (runif(1) < m) {
+      #total number in entire community
+      freq.all <- colSums(sapply(1:num.sp, FUN=function(x) {unlist(COM.list)==x}))
+      #members in local
+      freq.patch <- colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[patch]]==x}))
+      # members in meta-local
+      freq.all <- freq.all-freq.patch
+      freq.all <- freq.all/sum(freq.all)
+      # calculate fitness ratio
+      fit.ratio <- exp(freq.dep[,patch]*(freq.all-0.5) + log(fit.ratio.norm[,patch]))
+      # calculate Probability
+      Pr.all <-  fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  } else {
+  ## calculate only local 
+    freq.all <- colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[patch]]==x}))
+    fit.ratio <- exp(freq.dep[,patch]*(freq.all-0.5) + log(fit.ratio.norm[,patch]))
+      # calculate Probability
+      Pr.all <-  fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  }
+  
+  
+  
+  COM.list[[patch]][ceiling(J*runif(1))] <- sample(1:num.sp, 1, prob=Pr.all) 
+
+  ## record data  
+  if (i %% (J*num.patch) == 0) {
+    for ( p in 1:num.patch) {
+      freq.mat.patch[[p]][year,] <- colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[p]]==x}))/J
+    }
+    year <- year + 1 
+  }
+} 
+
+## graph the results
+plot(1:num.years, freq.mat.patch[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+  lines(1:num.years,freq.mat.patch[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+
+```
+
+Now, let's try when m varies and there is symmetrical selection
+
+``` {r}
+# the dispersal
+for ( m in c(0,0.1,0.5,0.8,1)) {
+    
+    ## specify parameters, initial conditions, and output matrix
+num.years <- 50 
+num.patch <- 10
+num.sp <- 2
+freq.mat <- matrix(nrow=num.years, ncol=num.sp)
+freq.mat.patch <- rep(list(freq.mat),times=num.patch)
+
+J <- 200 # number of individuals PER PATCH
+init.all <- rep(J/num.sp, num.sp)
+
+# make a list of multiple patches; each is a community. 
+COM.list <- list()
+for ( p in 1:num.patch ) {
+  COM <- vector(length = J)
+  ## Add all the species into the community vector instead of just two.
+  start <- 0
+  for ( i in 1:num.sp ) {
+    COM[(start+1):(start + init.all[i])] <- i
+    start <- start + init.all[i]
+  }
+  COM.list[[p]] <- COM
+}
+year <- 2 
+   # you can make the fitness ratio in each patch different for each species
+fit.ratio.value <- matrix(ncol=num.patch, nrow=num.sp)
+# fit.ratio.value[] <- 1
+fit.ratio.value[] <- c(1.1,1,1,1.1)
+fit.ratio.norm <- apply(fit.ratio.value, MARGIN=2, FUN=function(patch) {patch/sum(patch)})
+# you can make the freq dependencies different for each species in each patch
+freq.dep <- matrix(ncol=num.patch,nrow=num.sp)
+freq.dep[] <- 0
+  
+## record data (frequency of species 1) for year 1
+patch.freq <- lapply(COM.list, function(patch) {table(patch)/J})
+for ( p in 1:length(patch.freq) ) {
+  freq.mat.patch[[p]][1,] <- patch.freq[[p]]
+}
+
+## run simulation
+for (i in 1:(J*num.patch*(num.years-1))) {
+  ## choose a patch where a death even will occur
+  patch <- sample(1:num.patch,1)
+  
+  ## calculate the "reproductive success" of each species within its own patch
+  Pr.all.bypatch <- list()
+  for ( p in 1:num.patch) {
+      Pr.all.bypatch[[p]] <-colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[p]]==x}))/J
+  }
+  # ## Now, weight the probability of reproductive success of each species in each patch
+  # # flat prior probability
+  # Pr.all <- rep(1/num.sp, num.sp)
+  # # (1-m)% of new recruits are coming from the local patch
+  # freq.all <- Pr.all.bypatch[[patch]]
+  # fit.ratio <- exp(freq.dep[,patch]*(freq.all-0.5) + log(fit.ratio.norm[,patch]))
+  # Pr.all.local <-  fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  # 
+  # # m% of new recruits are coming from metacommunity (except local patch)
+  # Pr.all.meta.weighted <- rep(1, num.sp)
+  # for ( p in 1:num.patch) {
+  #     if ( p != patch ) {
+  #         freq.all <- Pr.all.bypatch[[p]]
+  #         fit.ratio <- exp(freq.dep[,p]*(freq.all-0.5) + log(fit.ratio.norm[,p]))
+  #         Pr.all.meta <- fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  #         Pr.all.meta.weighted <- Pr.all.meta.weighted+Pr.all.meta
+  #     }
+  # }
+  # Pr.all.meta.weighted <- Pr.all.meta.weighted/sum(Pr.all.meta.weighted)
+  # 
+  # Pr.all <- Pr.all.local*(1-m) + Pr.all.meta.weighted*m
+  # 
+  
+  
+  #### NEW PROPOSAL
+  ## calculate Pr.1 if dispersal occurs
+  if (runif(1) < m) {
+      #total number in entire community
+      freq.all <- colSums(sapply(1:num.sp, FUN=function(x) {unlist(COM.list)==x}))
+      #members in local
+      freq.patch <- colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[patch]]==x}))
+      # members in meta-local
+      freq.all <- freq.all-freq.patch
+      freq.all <- freq.all/sum(freq.all)
+      # calculate fitness ratio
+      fit.ratio <- exp(freq.dep[,patch]*(freq.all-0.5) + log(fit.ratio.norm[,patch]))
+      # calculate Probability
+      Pr.all <-  fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  } else {
+  ## calculate only local 
+    freq.all <- colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[patch]]==x}))
+    fit.ratio <- exp(freq.dep[,patch]*(freq.all-0.5) + log(fit.ratio.norm[,patch]))
+      # calculate Probability
+      Pr.all <-  fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  }
+  
+  COM.list[[patch]][ceiling(J*runif(1))] <- sample(1:num.sp, 1, prob=Pr.all) 
+
+  ## record data  
+  if (i %% (J*num.patch) == 0) {
+    for ( p in 1:num.patch) {
+      freq.mat.patch[[p]][year,] <- colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[p]]==x}))/J
+    }
+    year <- year + 1 
+  }
+} 
+
+if (m == 0) {
+    freq.mat.patch.0 <- freq.mat.patch
+} else if (m == 0.1) {
+    freq.mat.patch.0.1 <- freq.mat.patch
+} else if (m== 0.5) {
+    freq.mat.patch.0.5 <- freq.mat.patch
+} else if ( m == 0.8) {
+    freq.mat.patch.0.8 <- freq.mat.patch
+} else if ( m == 1) {
+    freq.mat.patch.1 <- freq.mat.patch
+} 
+
+}
+
+
+## graph the results
+par(mfrow=c(2,3))
+plot(1:num.years, freq.mat.patch.0[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+    lines(1:num.years,freq.mat.patch.0[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+plot(1:num.years, freq.mat.patch.0.1[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+    lines(1:num.years,freq.mat.patch.0.1[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+plot(1:num.years, freq.mat.patch.0.5[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+    lines(1:num.years,freq.mat.patch.0.5[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+plot(1:num.years, freq.mat.patch.0.8[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+    lines(1:num.years,freq.mat.patch.0.8[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+plot(1:num.years, freq.mat.patch.1[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+    lines(1:num.years,freq.mat.patch.1[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+```
+
+Now, let's try changing around parameters. When m varies and there is assymmetrical selection
+
+``` {r}
+# the dispersal
+for ( m in c(0,0.1,0.5,0.8,1)) {
+    
+    ## specify parameters, initial conditions, and output matrix
+num.years <- 150
+num.patch <- 10
+num.sp <- 2
+freq.mat <- matrix(nrow=num.years, ncol=num.sp)
+freq.mat.patch <- rep(list(freq.mat),times=num.patch)
+
+J <- 200 # number of individuals PER PATCH
+init.all <- rep(J/num.sp, num.sp)
+
+# make a list of multiple patches; each is a community. 
+COM.list <- list()
+for ( p in 1:num.patch ) {
+  COM <- vector(length = J)
+  ## Add all the species into the community vector instead of just two.
+  start <- 0
+  for ( i in 1:num.sp ) {
+    COM[(start+1):(start + init.all[i])] <- i
+    start <- start + init.all[i]
+  }
+  COM.list[[p]] <- COM
+}
+year <- 2 
+   # you can make the fitness ratio in each patch different for each species
+fit.ratio.value <- matrix(ncol=num.patch, nrow=num.sp)
+# fit.ratio.value[] <- 1
+fit.ratio.value[] <- c(1.1,1,1,1.2)
+fit.ratio.norm <- apply(fit.ratio.value, MARGIN=2, FUN=function(patch) {patch/sum(patch)})
+# you can make the freq dependencies different for each species in each patch
+freq.dep <- matrix(ncol=num.patch,nrow=num.sp)
+freq.dep[] <- 0
+  
+## record data (frequency of species 1) for year 1
+patch.freq <- lapply(COM.list, function(patch) {table(patch)/J})
+for ( p in 1:length(patch.freq) ) {
+  freq.mat.patch[[p]][1,] <- patch.freq[[p]]
+}
+
+## run simulation
+for (i in 1:(J*num.patch*(num.years-1))) {
+  ## choose a patch where a death even will occur
+  patch <- sample(1:num.patch,1)
+  
+  ## calculate the "reproductive success" of each species within its own patch
+  Pr.all.bypatch <- list()
+  for ( p in 1:num.patch) {
+      Pr.all.bypatch[[p]] <-colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[p]]==x}))/J
+  }
+  # ## Now, weight the probability of reproductive success of each species in each patch
+  # # flat prior probability
+  # Pr.all <- rep(1/num.sp, num.sp)
+  # # (1-m)% of new recruits are coming from the local patch
+  # freq.all <- Pr.all.bypatch[[patch]]
+  # fit.ratio <- exp(freq.dep[,patch]*(freq.all-0.5) + log(fit.ratio.norm[,patch]))
+  # Pr.all.local <-  fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  # 
+  # # m% of new recruits are coming from metacommunity (except local patch)
+  # Pr.all.meta.weighted <- rep(1, num.sp)
+  # for ( p in 1:num.patch) {
+  #     if ( p != patch ) {
+  #         freq.all <- Pr.all.bypatch[[p]]
+  #         fit.ratio <- exp(freq.dep[,p]*(freq.all-0.5) + log(fit.ratio.norm[,p]))
+  #         Pr.all.meta <- fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  #         Pr.all.meta.weighted <- Pr.all.meta.weighted+Pr.all.meta
+  #     }
+  # }
+  # Pr.all.meta.weighted <- Pr.all.meta.weighted/sum(Pr.all.meta.weighted)
+  # 
+  # Pr.all <- Pr.all.local*(1-m) + Pr.all.meta.weighted*m
+  # 
+  
+  #### NEW PROPOSAL
+  ## calculate Pr.1 if dispersal occurs
+  if (runif(1) < m) {
+      #total number in entire community
+      freq.all <- colSums(sapply(1:num.sp, FUN=function(x) {unlist(COM.list)==x}))
+      #members in local
+      freq.patch <- colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[patch]]==x}))
+      # members in meta-local
+      freq.all <- freq.all-freq.patch
+      freq.all <- freq.all/sum(freq.all)
+      # calculate fitness ratio
+      fit.ratio <- exp(freq.dep[,patch]*(freq.all-0.5) + log(fit.ratio.norm[,patch]))
+      # calculate Probability
+      Pr.all <-  fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  } else {
+  ## calculate only local 
+    freq.all <- colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[patch]]==x}))
+    fit.ratio <- exp(freq.dep[,patch]*(freq.all-0.5) + log(fit.ratio.norm[,patch]))
+      # calculate Probability
+      Pr.all <-  fit.ratio*freq.all/sum(fit.ratio*freq.all)
+  }
+  
+  COM.list[[patch]][ceiling(J*runif(1))] <- sample(1:num.sp, 1, prob=Pr.all) 
+
+  ## record data  
+  if (i %% (J*num.patch) == 0) {
+    for ( p in 1:num.patch) {
+      freq.mat.patch[[p]][year,] <- colSums(sapply(1:num.sp, FUN=function(x) {COM.list[[p]]==x}))/J
+    }
+    year <- year + 1 
+  }
+} 
+
+if (m == 0) {
+    freq.mat.patch.0 <- freq.mat.patch
+} else if (m == 0.1) {
+    freq.mat.patch.0.1 <- freq.mat.patch
+} else if (m== 0.5) {
+    freq.mat.patch.0.5 <- freq.mat.patch
+} else if ( m == 0.8) {
+    freq.mat.patch.0.8 <- freq.mat.patch
+} else if ( m == 1) {
+    freq.mat.patch.1 <- freq.mat.patch
+} 
+
+}
+
+
+## graph the results
+par(mfrow=c(2,3))
+plot(1:num.years, freq.mat.patch.0[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+    lines(1:num.years,freq.mat.patch.0[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+plot(1:num.years, freq.mat.patch.0.1[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+    lines(1:num.years,freq.mat.patch.0.1[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+plot(1:num.years, freq.mat.patch.0.5[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+    lines(1:num.years,freq.mat.patch.0.5[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+plot(1:num.years, freq.mat.patch.0.8[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+    lines(1:num.years,freq.mat.patch.0.8[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+plot(1:num.years, freq.mat.patch.1[[1]][,1], type="l", xlab="Time", 
+     ylab="Frequency of species 1", ylim=c(0,1))
+for (i in 2:(num.patch)) {
+    lines(1:num.years,freq.mat.patch.1[[i]][,1], type="l", lty=1, ylim=c(0,1))
+}
+```
+ 
+ In the code above, I'm not sure if the communities actually reach equilibrium-- it seems as if they do not. That is because when dispersal is very high (entirely from metacommunity), we still could reach fixation...? Is that correct?
+
+Vellend says: "However, just as different species might make different per
+
+capita contributions to the local offspring pool—thus having different proba-
+bilities of local success—species might also vary in their relative contributions
+
+to the pool of offspring that disperses among patches."
+
+Online box 6; adding reproductive dispersal ability differences
+
+
